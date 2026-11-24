@@ -4,23 +4,9 @@ This project uses the eve framework: an agent is a directory of files under `age
 
 For a content-only change to the root agent's identity, purpose, tone, or response guidelines, edit its existing authored instructions. Fresh projects use `agent/instructions.md`; a project may instead use `agent/instructions.ts` or files under `agent/instructions/`. You do not need to read the framework docs for a content-only instructions change. A fresh project already has its selected model in `agent/agent.ts`; preserve that file unless the user asks to change the model.
 
-## Read the docs before writing code
+## TypeScript Conventions
 
-```sh
-ls node_modules/eve/docs
-```
-
-Start with `docs/README.md`: it maps each task to the page that covers it. Read that page before authoring tools, connections, channels, skills, subagents, schedules, or deployment. In a workspace or local package install, resolve the installed `eve` package location first. If the package docs are missing, use https://eve.dev/docs.
-
-Use a bounded authoring loop:
-
-1. Read the relevant page and inspect only files you will modify or need to imitate.
-2. Stop discovery once the file location, imports, and definition shape are clear. Implement the smallest complete behavior the user requested.
-3. Run one narrow verification. Expand investigation only when it fails or the request needs project-specific details.
-
-Follow links or inspect public types only when the routed page leaves the task unanswered. Do not recursively glob `node_modules`, enumerate the entire docs tree, or read unrelated scaffold files when the direct path is known. Package-manager links can hide files from recursive glob tools even though direct reads work.
-
-Keep the bundle small: import SDK clients inside the functions that use them, and keep one version of each dependency. See `docs/guides/deployment/index.md#keep-the-bundle-small`.
+Reference `docs/typescript-conventions.md` for detailed TypeScript conventions.
 
 ## Prefer an existing integration
 
