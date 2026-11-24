@@ -6,5 +6,5 @@ export const SPOTIFY_CONNECTOR = "spotify/eve-playground";
 
 export const spotifyAuth = connect({
   connector: SPOTIFY_CONNECTOR,
-  tokenParams: { scopes: ["user-read-private", "user-read-email"] },
+  tokenParams: { scopes: ["user-read-private", "user-read-email", "user-modify-playback-state"] },
 });
