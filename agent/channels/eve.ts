@@ -1,10 +1,10 @@
-import { eveChannel } from "eve/channels/eve";
 import {
   type AuthFn,
   localDev,
   placeholderAuth,
   vercelOidc,
 } from "eve/channels/auth";
+import { eveChannel } from "eve/channels/eve";
 
 // Per-user connections (like Spotify) need a user identity. `localDev()` keeps
 // its safety checks (dev server only, loopback only); we only upgrade the
