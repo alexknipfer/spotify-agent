@@ -37,23 +37,7 @@ vercel link
 
 Connect checks that the requesting project is linked to the connector, so this step is required even for local development.
 
-### 3. Create the Spotify connector
-
-```bash
-vercel connect create spotify --name eve-playground
-```
-
-The CLI prompts for the connection method. If it asks for a client ID and secret, create an app in the [Spotify developer dashboard](https://developer.spotify.com/dashboard), copy its credentials into the prompt, and add the redirect URI the CLI shows you to the Spotify app's settings. Spotify requires an exact match.
-
-The connector UID is `<service>/<name>`, so this one is `spotify/eve-playground`. If you use a different `--name`, or the CLI prints another UID, update `SPOTIFY_CONNECTOR` in `agent/lib/spotify-auth.ts`.
-
-### 4. Attach the project to the connector
-
-```bash
-vercel connect attach spotify/eve-playground --yes
-```
-
-### 5. Pull the Vercel environment
+### 3. Pull the Vercel environment
 
 ```bash
 vercel env pull
@@ -68,25 +52,6 @@ eve dev
 ```
 
 Ask "Who am I on Spotify?". The agent shows a sign-in link. Open it, approve access on Spotify, and the agent continues with your profile. Later requests reuse the stored grant, so you aren't asked again.
-
-### Local development identity
-
-Spotify access belongs to one user, so eve needs a user identity for each request. The local `eve dev` caller has none by default, so `agent/channels/eve.ts` wraps `localDev()` to treat every local request as the same user (`local-dev-user`). That is fine for solo development. It would be wrong for a shared or deployed agent. Put a real authenticator, such as your app's login, ahead of it in the `auth` list. A Slack channel maps each Slack user automatically.
-
-### Spotify limitations
-
-- Playback control (play, pause, skip) requires Spotify Premium and an active device. Profile, search, and playlist endpoints work on free accounts.
-- A Spotify app in development mode only allows users you add under **User Management** in the Spotify dashboard.
-- Connect is billed per token request. See [Vercel Connect pricing](https://vercel.com/docs/connect/pricing).
-
-### Troubleshooting
-
-| What you see | What to do |
-| --- | --- |
-| `principal_required` | The request had no signed-in user. Check that `agent/channels/eve.ts` still returns `principalType: "user"` for local requests. |
-| The sign-in page asks you to log in to Vercel | Deployment Protection is blocking the callback. Sign in to Vercel with project access, or add a Deployment Protection exception. |
-| Token or connector not found | Run `vercel connect list` and check the connector UID. Confirm the project is attached and `.env.local` was pulled. |
-| Spotify rejects the redirect URI | Add the exact URI shown during `vercel connect create` to the Spotify app's settings. |
 
 ## Learn more
 
