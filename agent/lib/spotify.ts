@@ -23,6 +23,33 @@ const profileSchema = z.object({
   country: z.string().optional(),
 });
 
+const recentlyPlayedResponseSchema = z.object({
+  items: z.array(
+    z.object({
+      played_at: z.string(),
+      track: trackSchema,
+    }),
+  ),
+});
+
+const topTracksResponseSchema = z.object({
+  items: z.array(trackSchema),
+});
+
+export const topTracksTimeRangeSchema = z.enum([
+  "last_4_weeks",
+  "last_6_months",
+  "last_12_months",
+]);
+
+export type TopTracksTimeRange = z.infer<typeof topTracksTimeRangeSchema>;
+
+const TOP_TRACKS_TIME_RANGES: Record<TopTracksTimeRange, string> = {
+  last_4_weeks: "short_term",
+  last_6_months: "medium_term",
+  last_12_months: "long_term",
+};
+
 export type SpotifyTrack = z.infer<typeof trackSchema>;
 
 export async function getSpotifyClient(ctx: ToolContext) {
@@ -182,10 +209,40 @@ export async function getSpotifyClient(ctx: ToolContext) {
     ensureOk(res, "queue request", { playback: true });
   }
 
+  async function getRecentlyPlayed(limit = 20) {
+    const res = await request("/me/player/recently-played", {
+      limit: String(limit),
+    });
+
+    ensureOk(res, "recently played request");
+
+    const body = recentlyPlayedResponseSchema.parse(await readJson(res));
+
+    return body.items.map((item) => ({
+      playedAt: item.played_at,
+      track: item.track,
+    }));
+  }
+
+  async function getTopTracks(timeRange: TopTracksTimeRange, limit = 20) {
+    const res = await request("/me/top/tracks", {
+      time_range: TOP_TRACKS_TIME_RANGES[timeRange],
+      limit: String(limit),
+    });
+
+    ensureOk(res, "top tracks request");
+
+    const body = topTracksResponseSchema.parse(await readJson(res));
+
+    return body.items;
+  }
+
   return {
     getProfile,
     searchTracks,
     findTrack,
     addToQueue,
+    getRecentlyPlayed,
+    getTopTracks,
   };
 }
