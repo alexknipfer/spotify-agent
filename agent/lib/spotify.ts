@@ -5,162 +5,187 @@ import { spotifyAuth } from "./spotify-auth";
 const API_URL = "https://api.spotify.com/v1";
 
 const trackSchema = z.object({
-	uri: z.string(),
-	name: z.string(),
-	popularity: z.number().optional(),
-	artists: z.array(z.object({ name: z.string() })),
-	album: z.object({ name: z.string() }).optional(),
+  uri: z.string(),
+  name: z.string(),
+  popularity: z.number().optional(),
+  artists: z.array(z.object({ name: z.string() })),
+  album: z.object({ name: z.string() }).optional(),
 });
 
 const searchResponseSchema = z.object({
-	tracks: z.object({ items: z.array(trackSchema) }).optional(),
+  tracks: z.object({ items: z.array(trackSchema) }).optional(),
 });
 
 const profileSchema = z.object({
-	id: z.string(),
-	display_name: z.string().nullable(),
-	product: z.string().optional(),
-	country: z.string().optional(),
+  id: z.string(),
+  display_name: z.string().nullable(),
+  product: z.string().optional(),
+  country: z.string().optional(),
 });
 
 export type SpotifyTrack = z.infer<typeof trackSchema>;
 
 export async function getSpotifyClient(ctx: ToolContext) {
-	const { token } = await ctx.getToken(spotifyAuth);
+  const { token } = await ctx.getToken(spotifyAuth);
 
-	async function request(
-		path: string,
-		params: Record<string, string> = {},
-		init: RequestInit = {},
-	) {
-		const url = new URL(`${API_URL}${path}`);
+  async function request(
+    path: string,
+    params: Record<string, string> = {},
+    init: Omit<RequestInit, "body"> & { json?: unknown } = {},
+  ) {
+    const { json, headers: initHeaders, ...rest } = init;
+    const url = new URL(`${API_URL}${path}`);
 
-		for (const [key, value] of Object.entries(params)) {
-			url.searchParams.set(key, value);
-		}
+    for (const [key, value] of Object.entries(params)) {
+      url.searchParams.set(key, value);
+    }
 
-		const res = await fetch(url, {
-			...init,
-			headers: { authorization: `Bearer ${token}` },
-			signal: ctx.abortSignal,
-		});
+    const headers = new Headers(initHeaders);
+    headers.set("authorization", `Bearer ${token}`);
 
-		if (res.status === 401) {
-			ctx.requireAuth(spotifyAuth);
-		}
+    if (json !== undefined) {
+      headers.set("content-type", "application/json");
+    }
 
-		return res;
-	}
+    const res = await fetch(url, {
+      ...rest,
+      headers,
+      body: json === undefined ? undefined : JSON.stringify(json),
+      signal: ctx.abortSignal,
+    });
 
-	function normalize(value: string) {
-		return value.trim().toLowerCase();
-	}
+    if (res.status === 401) {
+      ctx.requireAuth(spotifyAuth);
+    }
 
-	async function getProfile() {
-		const res = await request("/me");
+    return res;
+  }
 
-		if (!res.ok) {
-			throw new Error(`Spotify profile request failed (${res.status}).`);
-		}
+  async function readJson(res: Response): Promise<unknown> {
+    return res.status === 204 ? undefined : res.json();
+  }
 
-		const me = profileSchema.parse(await res.json());
-		return {
-			id: me.id,
-			displayName: me.display_name,
-			plan: me.product,
-			country: me.country,
-		};
-	}
+  function ensureOk(
+    res: Response,
+    action: string,
+    { playback = false }: { playback?: boolean } = {},
+  ) {
+    if (res.ok) {
+      return;
+    }
 
-	async function searchTracks(
-		query: string,
-		limit = 10,
-	): Promise<SpotifyTrack[]> {
-		const response = await request("/search", {
-			q: query,
-			type: "track",
-			limit: String(limit),
-		});
+    if (playback && res.status === 404) {
+      throw new Error(
+        "Spotify has no active device. Ask the user to start playing something in the Spotify app, then try again.",
+      );
+    }
 
-		if (!response.ok) {
-			throw new Error(`Spotify search failed (${response.status}).`);
-		}
+    if (playback && res.status === 403) {
+      throw new Error(
+        "Spotify refused the request. Playback control requires a Premium account.",
+      );
+    }
 
-		const body = searchResponseSchema.parse(await response.json());
+    if (res.status === 429) {
+      const retryAfter = res.headers.get("retry-after");
+      throw new Error(
+        `Spotify rate limit hit${retryAfter ? `; retry in ${retryAfter}s` : ""}.`,
+      );
+    }
 
-		return body.tracks?.items ?? [];
-	}
+    throw new Error(`Spotify ${action} failed (${res.status}).`);
+  }
 
-	/**
-	 * Finds the best matching track: prefers exact title matches (and the artist,
-	 * if given), then the most popular. Returns undefined when nothing matches.
-	 */
-	async function findTrack({
-		song,
-		artist,
-	}: {
-		song: string;
-		artist?: string;
-	}): Promise<SpotifyTrack | undefined> {
-		let candidates: SpotifyTrack[];
+  function normalize(value: string) {
+    return value.trim().toLowerCase();
+  }
 
-		if (artist) {
-			candidates = await searchTracks(`track:"${song}" artist:"${artist}"`);
+  async function getProfile() {
+    const res = await request("/me");
+    ensureOk(res, "profile request");
 
-			if (candidates.length === 0) {
-				candidates = await searchTracks(`${song} ${artist}`);
-			}
-		} else {
-			candidates = await searchTracks(song);
-		}
+    const me = profileSchema.parse(await readJson(res));
+    return {
+      id: me.id,
+      displayName: me.display_name,
+      plan: me.product,
+      country: me.country,
+    };
+  }
 
-		const wantedTitle = normalize(song);
-		const wantedArtist = artist ? normalize(artist) : undefined;
+  async function searchTracks(
+    query: string,
+    limit = 10,
+  ): Promise<SpotifyTrack[]> {
+    const response = await request("/search", {
+      q: query,
+      type: "track",
+      limit: String(limit),
+    });
 
-		function score(t: SpotifyTrack) {
-			const titleScore = normalize(t.name) === wantedTitle ? 2 : 0;
-			const artistScore =
-				wantedArtist &&
-				t.artists.some((a) => normalize(a.name).includes(wantedArtist))
-					? 2
-					: 0;
-			return titleScore + artistScore;
-		}
+    ensureOk(response, "search");
 
-		return [...candidates].sort(
-			(a, b) =>
-				score(b) - score(a) || (b.popularity ?? 0) - (a.popularity ?? 0),
-		)[0];
-	}
+    const body = searchResponseSchema.parse(await readJson(response));
 
-	async function addToQueue(trackUri: string) {
-		const res = await request(
-			"/me/player/queue",
-			{ uri: trackUri },
-			{ method: "POST" },
-		);
+    return body.tracks?.items ?? [];
+  }
 
-		if (res.status === 404) {
-			throw new Error(
-				"Spotify has no active device. Ask the user to start playing something in the Spotify app, then try again.",
-			);
-		}
+  /**
+   * Finds the best matching track: prefers exact title matches (and the artist,
+   * if given), then the most popular. Returns undefined when nothing matches.
+   */
+  async function findTrack({
+    song,
+    artist,
+  }: {
+    song: string;
+    artist?: string;
+  }): Promise<SpotifyTrack | undefined> {
+    let candidates: SpotifyTrack[];
 
-		if (res.status === 403) {
-			throw new Error(
-				"Spotify refused the request. Queueing requires a Premium account.",
-			);
-		}
+    if (artist) {
+      candidates = await searchTracks(`track:"${song}" artist:"${artist}"`);
 
-		if (!res.ok) {
-			throw new Error(`Spotify queue request failed (${res.status}).`);
-		}
-	}
+      if (candidates.length === 0) {
+        candidates = await searchTracks(`${song} ${artist}`);
+      }
+    } else {
+      candidates = await searchTracks(song);
+    }
 
-	return {
-		getProfile,
-		searchTracks,
-		findTrack,
-		addToQueue,
-	};
+    const wantedTitle = normalize(song);
+    const wantedArtist = artist ? normalize(artist) : undefined;
+
+    function score(t: SpotifyTrack) {
+      const titleScore = normalize(t.name) === wantedTitle ? 2 : 0;
+      const artistScore =
+        wantedArtist &&
+        t.artists.some((a) => normalize(a.name).includes(wantedArtist))
+          ? 2
+          : 0;
+      return titleScore + artistScore;
+    }
+
+    return [...candidates].sort(
+      (a, b) =>
+        score(b) - score(a) || (b.popularity ?? 0) - (a.popularity ?? 0),
+    )[0];
+  }
+
+  async function addToQueue(trackUri: string) {
+    const res = await request(
+      "/me/player/queue",
+      { uri: trackUri },
+      { method: "POST" },
+    );
+
+    ensureOk(res, "queue request", { playback: true });
+  }
+
+  return {
+    getProfile,
+    searchTracks,
+    findTrack,
+    addToQueue,
+  };
 }
